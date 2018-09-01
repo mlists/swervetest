@@ -89,19 +89,32 @@ class ICREstimator:
             if np.linalg.norm(q - self.S(lmda)) < self.eta_delta:
                 found = True
             else:
+                last_singularity = None
                 for i in range(self.max_iter):
                     (S_u, S_v) = self.compute_derivatives(lmda)
+                    if last_singularity is not None:
+                        # if we had a singularity last time, set the derivatives
+                        # for the corresponding wheel to 0
+                        S_u[last_singularity] = 0
+                        S_v[last_singularity] = 0
                     (delta_u, delta_v) = self.solve(S_u, S_v, q, lmda)
                     lmda_t = self.update_parameters(lmda, delta_u, delta_v)
-                    lmda_t = self.handle_singularities(lmda_t)
-                    if np.linalg.norm(q - self.S(lmda_t)) > np.linalg.norm(q - self.S):
+                    singularity, singularity_number = self.handle_singularities(lmda_t)
+                    S_lmda = self.S(lmda_t)
+                    if last_singularity is not None and singularity:
+                        # the test point is still on the steering axis, suggesting
+                        # it is on a singularity. Set beta_k to the input steering
+                        # value
+                        S_lmda[last_singularity] = q[last_singularity]
+                    last_singularity = singularity_number
+                    if np.linalg.norm(q - S_lmda) > np.linalg.norm(q - self.S(lmda_start)):
                         # appears the algorithm has diverged as we are not
                         # improving
                         found = False
                         break
                     else:
                         found = np.linalg.norm(lmda - lmda_t) > self.eta_lmda
-                        distance = np.linalg.norm(q - self.S(lmda_t))
+                        distance = np.linalg.norm(q - S_lmda)
                         if distance < closest_dist:
                             closest_lmda = lmda_t
                             closest_dist = distance
@@ -197,9 +210,17 @@ class ICREstimator:
         Handle the structural singularities that may have been produced when
         the parameters were updated (when the ICR lies on a steering axis).
         :param lmda: the ICR estimate after the parameters were updated.
-        :return: the ICR estimate with the singularity corrected.
+        :return: if the ICR is on a structural singularity, and the wheel
+        number which the singularity is on if there is one
         """
-        return np.zeros(shape=(3, 1))
+        wheel_number = None
+        for i in range(self.n_modules):
+            # equations 16 and 17 in the paper
+            s = column(self.s, i)
+            if np.allclose(lmda, s/np.linalg.norm(s)):
+                wheel_number = i
+                break
+        return wheel_number is not None, wheel_number
 
     def S(self, lmda: np.ndarray):
         """

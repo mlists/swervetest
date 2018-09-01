@@ -33,3 +33,17 @@ def test_compute_derivatives():
     icre = init_icre([math.pi/4, -math.pi/4, math.pi], [1, 1, 1], [0, 0, 0])
     lmda = np.array([0, 0, -1]).reshape(-1, 1)
     S_u, S_v = icre.compute_derivatives(lmda)
+
+def test_handle_singularities():
+    icre = init_icre([0, math.pi/2, math.pi], [1, 1, 1], [0, 0, 0])
+    # icr on wheel 0 on the R^2 plane
+    icr = np.array([1, 0, 1]).reshape(-1, 1)
+    lmda = icr * 1/np.linalg.norm(icr)
+    singularity, wheel_number = icre.handle_singularities(lmda)
+    assert singularity
+    assert wheel_number is 0
+    icr = np.array([100, 0, 1]).reshape(-1, 1)
+    lmda = icr * 1/np.linalg.norm(icr)
+    singularity, wheel_number = icre.handle_singularities(lmda)
+    assert not singularity
+    assert wheel_number is None
