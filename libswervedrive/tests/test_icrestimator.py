@@ -27,3 +27,9 @@ def test_solve():
     S_v = np.array([0, 0, 1])
     q = np.array([0, 0, 0])
     icre.solve(S_u, S_v, q, lmda)
+
+def test_compute_derivatives():
+    # for now, check only for runtime errors
+    icre = init_icre([math.pi/4, -math.pi/4, math.pi], [1, 1, 1], [0, 0, 0])
+    lmda = np.array([0, 0, -1]).reshape(-1, 1)
+    S_u, S_v = icre.compute_derivatives(lmda)

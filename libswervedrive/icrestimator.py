@@ -132,7 +132,27 @@ class ICREstimator:
         containing the derivatives of each steering angle in q with respect
         u and v, respectively.
         """
-        return (np.zeros(shape=(self.n_modules,)) for i in range(2))
+        S_u = np.zeros(shape=(self.n_modules,))
+        S_v = np.zeros(shape=(self.n_modules,))
+        lmda = lmda.T # computations require lambda as a row vector
+        for i in range(self.n_modules):
+            # equations 16 and 17 in the paper
+            a = column(self.a, i)
+            a_orth = column(self.a_orth, i)
+            l = column(self.l_v, i)
+            delta = lmda.dot(a-l)
+            omega = lmda.dot(a_orth)
+            # equation 18 excluding ∂lmda/∂u
+            gamma_top = (omega*(a-l) + delta*a_orth)
+            gamma_bottom = lmda.dot(delta*(a-l) - omega*a_orth)
+            # equation 19
+            du = np.array([1, 0, -lmda[0,0]/lmda[0,2]]).reshape(1, 3)
+            dv = np.array([0, 1, -lmda[0,1]/lmda[0,2]]).reshape(1, 3)
+            beta_u = du.dot(gamma_top) / gamma_bottom
+            beta_v = dv.dot(gamma_top) / gamma_bottom
+            S_u[i] = beta_u
+            S_v[i] = beta_v
+        return (S_u, S_v)
 
     def solve(self, S_u: np.ndarray, S_v: np.ndarray, q: np.ndarray,
               lmda: np.ndarray):
