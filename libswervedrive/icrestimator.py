@@ -86,7 +86,7 @@ class ICREstimator:
             lmda = lmda_start
             if closest_lmda is None:
                 closest_lmda = lmda_start
-                closest_dist = np.linalg.norm(q - self.S(lmda_t))
+                closest_dist = np.linalg.norm(q - self.S(lmda_start))
             if np.linalg.norm(q - self.S(lmda)) < self.eta_delta:
                 found = True
             else:
