@@ -135,7 +135,25 @@ class ICREstimator:
         :return: List of the top three starting points ordered according to
         their distance to the input length.
         """
-        return np.zeros(shape=(3, 3))
+        starting_points = []
+
+        def get_p(i):
+            s = column(self.s, i).reshape(-1)
+            d = s + np.array([math.cos(q[i] + self.alpha[i]),
+                              math.sin(q[i] + self.alpha[i]), 0])
+            return np.cross(s, d)
+        for i in range(self.n_modules):
+            p_1 = get_p(i)
+            for j in range(self.n_modules):
+                if i == j:
+                    continue
+                p_2 = get_p(j)
+                c = np.cross(p_1, p_2)
+                dist = np.linalg.norm(q-self.S(c))
+                starting_points.append([c, dist])
+        starting_points.sort(key=lambda point: point[1])
+        sp_arr = [p[0].reshape(3, 1) for p in starting_points]
+        return sp_arr
 
     def compute_derivatives(self, lmda: np.ndarray):
         """
