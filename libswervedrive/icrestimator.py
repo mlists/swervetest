@@ -7,6 +7,7 @@ class ICREstimator:
     # constants used in the lmda estimation algo
     eta_lmda: float = 1e-3 # TODO: figure out what values this should be
     eta_delta: float = 1e-3 # TODO: figure out what values this should be
+    min_delta_size: float = 1e-3 # TODO: figure out what value this should be
     max_iter = 3 # TODO: figure out what value should be
 
     def __init__(self, epsilon_init: np.ndarray, modules_alpha: np.ndarray, modules_l: np.ndarray,
@@ -174,7 +175,7 @@ class ICREstimator:
         delta_u and delta_v.
         :param S_u: derivative of constraining surface wrt u (vector).
         :param S_v: derivative of constraining surface wrt v (vector).
-        :param q: list of angles beta between representing the steer angle
+        :param q: list of angles beta representing the steer angle
         (measured relative to the orientation orthogonal to the line to the
         chassis frame origin.)
         :param lmda: position of the ICR estimate.
@@ -190,7 +191,8 @@ class ICREstimator:
         x = np.linalg.solve(A, b)
         return x
 
-    def update_parameters(self, lmda: np.ndarray, delta_u: float, delta_v: float):
+    def update_parameters(self, lmda: np.ndarray, delta_u: float, delta_v: float,
+                          q: np.ndarray):
         """
         Move our estimate of the ICR based on the free parameters delta_u and
         delta_v. If invalid parameters are produced rescale them so they lie
@@ -200,10 +202,37 @@ class ICREstimator:
         estimate in the direction S_u.
         :param delta_v: free parameter defining how much to move the ICR
         estimate in the direction S_v.
+        :param q: list of angles beta representing the steer angle
+        (measured relative to the orientation orthogonal to the line to the
+        chassis frame origin.)
         :return: the new ICR estimate, a flag indicating divergence of the
         algorithm for this starting point.
         """
-        return np.zeros(shape=(3, 1))
+        lmda_t = lmda
+        worse = False
+        # while the algorithm produces a worse than or equal to good estimate
+        # for q on the surface as lmda from the previous iteration
+        while np.linalg.norm(q - self.S(lmda)) <= np.linalg.norm(q - self.S(lmda_t)):
+            # set a minimum step size to avoid infinite recursion
+            if np.linalg.norm([delta_u, delta_v]) < self.min_delta_size:
+                worse = True
+                break
+            u = lmda[0, 0]
+            v = lmda[1, 0]
+            u_i = u + delta_u
+            v_i = u + delta_v
+            # if adding delta_u and delta_v has produced out of bounds values,
+            # recursively multiply to ensure they remain within bounds
+            while np.linalg.norm([u_i, v_i]) > 1:
+                factor = np.linalg.norm([u, v])
+                u_i *= factor
+                v_i *= factor
+            w = math.sqrt(1-np.linalg.norm([u_i, v_i])) # equation 4
+            lmda_t = np.array([u_i, v_i, w]).reshape(-1, 1)
+            # backtrack by reducing the step size
+            delta_u *= 0.5
+            delta_v *= 0.5
+        return lmda_t, worse
 
     def handle_singularities(self, lmda: np.ndarray):
         """
