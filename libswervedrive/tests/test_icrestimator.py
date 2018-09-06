@@ -51,15 +51,14 @@ def test_handle_singularities():
 def test_update_parameters():
     icre = init_icre([0, math.pi/2, math.pi], [1, 1, 1], [0, 0, 0])
     q = np.zeros(shape=(3,)) # ICR on the robot's origin
-    desired_lmda = np.array([0, 0, -1]).reshape(-1, 1)
+    desired_lmda = np.array([0, 0, 1]).reshape(-1, 1)
     u, v = -0.1, -0.1 # ICR estimate too negative
     lmda_estimate = np.array([u, v,
                               math.sqrt(1-np.linalg.norm([u, v]))]).reshape(-1, 1)
     delta_u, delta_v = 0.1, 0.1
     lmda_t, worse = icre.update_parameters(lmda_estimate, delta_u, delta_v,
                                            q)
-    # ignore w coordinate in comparison due to antipodal points
-    assert np.allclose(lmda_t[:2], desired_lmda[:2])
+    assert np.allclose(lmda_t, desired_lmda)
     assert not worse
     delta_u, delta_v = -0.1, -0.1
     lmda_t, worse = icre.update_parameters(lmda_estimate, delta_u, delta_v,

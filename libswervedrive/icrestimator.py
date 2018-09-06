@@ -257,6 +257,8 @@ class ICREstimator:
             # backtrack by reducing the step size
             delta_u *= 0.5
             delta_v *= 0.5
+        if lmda_t[2,0] < 0:
+            lmda_t = -lmda_t
         return lmda_t, worse
 
     def handle_singularities(self, lmda: np.ndarray):
