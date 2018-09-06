@@ -67,10 +67,20 @@ def test_update_parameters():
     assert worse
 
 def test_select_starting_points():
-    # TODO: make this test more than zero steering angles
     icre = init_icre([0, math.pi/2, math.pi], [1, 1, 1], [0, 0, 0])
     q = np.zeros(shape=(3,)) # ICR on the robot's origin
     desired_lmda = np.array([0, 0, -1])
     starting_points = icre.select_starting_points(q)
     for sp in starting_points:
         assert np.allclose(desired_lmda[:2], sp[:2])
+    q = np.array([math.pi/4, 0, -math.pi/4])
+    icr = np.array([0, -1, 1]).reshape(-1, 1)
+    desired_lmda = icr * 1/np.linalg.norm(icr)
+    starting_points = icre.select_starting_points(q)
+    assert np.allclose(desired_lmda[:2], starting_points[0][:2])
+    # driving along the y axis
+    q = np.array([0, math.pi/2, 0])
+    # so the ICR should be on the U axis
+    desired_lmda = np.array([1, 0, 0]).reshape(-1, 1)
+    starting_points = icre.select_starting_points(q)
+    assert np.allclose(desired_lmda[:2], (starting_points[0][:2]))

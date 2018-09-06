@@ -150,6 +150,8 @@ class ICREstimator:
                     continue
                 p_2 = get_p(j)
                 c = np.cross(p_1, p_2)
+                if c[2] < 0:
+                    c = -c
                 dist = np.linalg.norm(q-self.S(c))
                 starting_points.append([c, dist])
         starting_points.sort(key=lambda point: point[1])
