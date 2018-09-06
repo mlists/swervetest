@@ -99,7 +99,7 @@ class ICREstimator:
                         S_u[last_singularity] = 0
                         S_v[last_singularity] = 0
                     (delta_u, delta_v) = self.solve(S_u, S_v, q, lmda)
-                    lmda_t = self.update_parameters(lmda, delta_u, delta_v)
+                    lmda_t, worse = self.update_parameters(lmda, delta_u, delta_v, q)
                     singularity, singularity_number = self.handle_singularities(lmda_t)
                     S_lmda = self.S(lmda_t)
                     if last_singularity is not None and singularity:
@@ -142,10 +142,11 @@ class ICREstimator:
             d = s + np.array([math.cos(q[i] + self.alpha[i]),
                               math.sin(q[i] + self.alpha[i]), 0])
             return np.cross(s, d)
+
         for i in range(self.n_modules):
             p_1 = get_p(i)
             for j in range(self.n_modules):
-                if i == j:
+                if not i > j:
                     continue
                 p_2 = get_p(j)
                 c = np.cross(p_1, p_2)
@@ -166,20 +167,24 @@ class ICREstimator:
         """
         S_u = np.zeros(shape=(self.n_modules,))
         S_v = np.zeros(shape=(self.n_modules,))
-        lmda = lmda.T # computations require lambda as a row vector
+        lmda = lmda.reshape(3) # computations require lambda as a row vector
         for i in range(self.n_modules):
             # equations 16 and 17 in the paper
-            a = column(self.a, i)
-            a_orth = column(self.a_orth, i)
-            l = column(self.l_v, i)
+            a = column(self.a, i).reshape(3)
+            a_orth = column(self.a_orth, i).reshape(3)
+            l = column(self.l_v, i).reshape(3)
             delta = lmda.dot(a-l)
             omega = lmda.dot(a_orth)
             # equation 18 excluding ∂lmda/∂u
-            gamma_top = (omega*(a-l) + delta*a_orth)
-            gamma_bottom = lmda.dot(delta*(a-l) - omega*a_orth)
+            gamma_top = omega*(a-l) + delta*a_orth
+            gamma_bottom = (lmda.dot(delta*(a-l) - omega*a_orth))
+            if gamma_bottom == 0:
+                S_u[i] = 0
+                S_v[i] = 0
+                continue
             # equation 19
-            du = np.array([1, 0, -lmda[0,0]/lmda[0,2]]).reshape(1, 3)
-            dv = np.array([0, 1, -lmda[0,1]/lmda[0,2]]).reshape(1, 3)
+            du = np.array([1, 0, -lmda[0]/lmda[2]]).reshape(1, 3)
+            dv = np.array([0, 1, -lmda[1]/lmda[2]]).reshape(1, 3)
             beta_u = du.dot(gamma_top) / gamma_bottom
             beta_v = dv.dot(gamma_top) / gamma_bottom
             S_u[i] = beta_u
@@ -207,7 +212,7 @@ class ICREstimator:
         diff = (q - p_zero).reshape((1, -1))
         b = np.array([diff.dot(S_u.T), diff.dot(S_v.T)])
         x = np.linalg.solve(A, b)
-        return x
+        return x[0,0], x[1,0]
 
     def update_parameters(self, lmda: np.ndarray, delta_u: float, delta_v: float,
                           q: np.ndarray):
