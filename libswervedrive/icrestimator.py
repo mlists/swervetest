@@ -7,6 +7,7 @@ class ICREstimator:
     # constants used in the lmda estimation algo
     eta_lmda: float = 1e-3 # TODO: figure out what values this should be
     eta_delta: float = 1e-3 # TODO: figure out what values this should be
+    min_delta_size: float = 1e-3 # TODO: figure out what value this should be
     max_iter = 3 # TODO: figure out what value should be
 
     def __init__(self, epsilon_init: np.ndarray, modules_alpha: np.ndarray, modules_l: np.ndarray,
@@ -85,23 +86,36 @@ class ICREstimator:
             lmda = lmda_start
             if closest_lmda is None:
                 closest_lmda = lmda_start
-                closest_dist = np.linalg.norm(q - self.S(lmda_t))
+                closest_dist = np.linalg.norm(q - self.S(lmda_start))
             if np.linalg.norm(q - self.S(lmda)) < self.eta_delta:
                 found = True
             else:
+                last_singularity = None
                 for i in range(self.max_iter):
                     (S_u, S_v) = self.compute_derivatives(lmda)
+                    if last_singularity is not None:
+                        # if we had a singularity last time, set the derivatives
+                        # for the corresponding wheel to 0
+                        S_u[last_singularity] = 0
+                        S_v[last_singularity] = 0
                     (delta_u, delta_v) = self.solve(S_u, S_v, q, lmda)
-                    lmda_t = self.update_parameters(lmda, delta_u, delta_v)
-                    lmda_t = self.handle_singularities(lmda_t)
-                    if np.linalg.norm(q - self.S(lmda_t)) > np.linalg.norm(q - self.S):
+                    lmda_t, worse = self.update_parameters(lmda, delta_u, delta_v, q)
+                    singularity, singularity_number = self.handle_singularities(lmda_t)
+                    S_lmda = self.S(lmda_t)
+                    if last_singularity is not None and singularity:
+                        # the test point is still on the steering axis, suggesting
+                        # it is on a singularity. Set beta_k to the input steering
+                        # value
+                        S_lmda[last_singularity] = q[last_singularity]
+                    last_singularity = singularity_number
+                    if np.linalg.norm(q - S_lmda) > np.linalg.norm(q - self.S(lmda_start)):
                         # appears the algorithm has diverged as we are not
                         # improving
                         found = False
                         break
                     else:
                         found = np.linalg.norm(lmda - lmda_t) > self.eta_lmda
-                        distance = np.linalg.norm(q - self.S(lmda_t))
+                        distance = np.linalg.norm(q - S_lmda)
                         if distance < closest_dist:
                             closest_lmda = lmda_t
                             closest_dist = distance
@@ -121,7 +135,28 @@ class ICREstimator:
         :return: List of the top three starting points ordered according to
         their distance to the input length.
         """
-        return np.zeros(shape=(3, 3))
+        starting_points = []
+
+        def get_p(i):
+            s = column(self.s, i).reshape(-1)
+            d = s + np.array([math.cos(q[i] + self.alpha[i]),
+                              math.sin(q[i] + self.alpha[i]), 0])
+            return np.cross(s, d)
+
+        for i in range(self.n_modules):
+            p_1 = get_p(i)
+            for j in range(self.n_modules):
+                if not i > j:
+                    continue
+                p_2 = get_p(j)
+                c = np.cross(p_1, p_2)
+                if c[2] < 0:
+                    c = -c
+                dist = np.linalg.norm(q-self.S(c))
+                starting_points.append([c, dist])
+        starting_points.sort(key=lambda point: point[1])
+        sp_arr = [p[0].reshape(3, 1) for p in starting_points]
+        return sp_arr
 
     def compute_derivatives(self, lmda: np.ndarray):
         """
@@ -132,7 +167,31 @@ class ICREstimator:
         containing the derivatives of each steering angle in q with respect
         u and v, respectively.
         """
-        return (np.zeros(shape=(self.n_modules,)) for i in range(2))
+        S_u = np.zeros(shape=(self.n_modules,))
+        S_v = np.zeros(shape=(self.n_modules,))
+        lmda = lmda.reshape(3) # computations require lambda as a row vector
+        for i in range(self.n_modules):
+            # equations 16 and 17 in the paper
+            a = column(self.a, i).reshape(3)
+            a_orth = column(self.a_orth, i).reshape(3)
+            l = column(self.l_v, i).reshape(3)
+            delta = lmda.dot(a-l)
+            omega = lmda.dot(a_orth)
+            # equation 18 excluding ∂lmda/∂u
+            gamma_top = omega*(a-l) + delta*a_orth
+            gamma_bottom = (lmda.dot(delta*(a-l) - omega*a_orth))
+            if gamma_bottom == 0:
+                S_u[i] = 0
+                S_v[i] = 0
+                continue
+            # equation 19
+            du = np.array([1, 0, -lmda[0]/lmda[2]]).reshape(1, 3)
+            dv = np.array([0, 1, -lmda[1]/lmda[2]]).reshape(1, 3)
+            beta_u = du.dot(gamma_top) / gamma_bottom
+            beta_v = dv.dot(gamma_top) / gamma_bottom
+            S_u[i] = beta_u
+            S_v[i] = beta_v
+        return (S_u, S_v)
 
     def solve(self, S_u: np.ndarray, S_v: np.ndarray, q: np.ndarray,
               lmda: np.ndarray):
@@ -141,7 +200,7 @@ class ICREstimator:
         delta_u and delta_v.
         :param S_u: derivative of constraining surface wrt u (vector).
         :param S_v: derivative of constraining surface wrt v (vector).
-        :param q: list of angles beta between representing the steer angle
+        :param q: list of angles beta representing the steer angle
         (measured relative to the orientation orthogonal to the line to the
         chassis frame origin.)
         :param lmda: position of the ICR estimate.
@@ -155,9 +214,10 @@ class ICREstimator:
         diff = (q - p_zero).reshape((1, -1))
         b = np.array([diff.dot(S_u.T), diff.dot(S_v.T)])
         x = np.linalg.solve(A, b)
-        return x
+        return x[0,0], x[1,0]
 
-    def update_parameters(self, lmda: np.ndarray, delta_u: float, delta_v: float):
+    def update_parameters(self, lmda: np.ndarray, delta_u: float, delta_v: float,
+                          q: np.ndarray):
         """
         Move our estimate of the ICR based on the free parameters delta_u and
         delta_v. If invalid parameters are produced rescale them so they lie
@@ -167,19 +227,56 @@ class ICREstimator:
         estimate in the direction S_u.
         :param delta_v: free parameter defining how much to move the ICR
         estimate in the direction S_v.
+        :param q: list of angles beta representing the steer angle
+        (measured relative to the orientation orthogonal to the line to the
+        chassis frame origin.)
         :return: the new ICR estimate, a flag indicating divergence of the
         algorithm for this starting point.
         """
-        return np.zeros(shape=(3, 1))
+        lmda_t = lmda
+        worse = False
+        # while the algorithm produces a worse than or equal to good estimate
+        # for q on the surface as lmda from the previous iteration
+        while np.linalg.norm(q - self.S(lmda)) <= np.linalg.norm(q - self.S(lmda_t)):
+            # set a minimum step size to avoid infinite recursion
+            if np.linalg.norm([delta_u, delta_v]) < self.min_delta_size:
+                worse = True
+                break
+            u = lmda[0, 0]
+            v = lmda[1, 0]
+            u_i = u + delta_u
+            v_i = u + delta_v
+            # if adding delta_u and delta_v has produced out of bounds values,
+            # recursively multiply to ensure they remain within bounds
+            while np.linalg.norm([u_i, v_i]) > 1:
+                factor = np.linalg.norm([u, v])
+                u_i *= factor
+                v_i *= factor
+            w = math.sqrt(1-np.linalg.norm([u_i, v_i])) # equation 4
+            lmda_t = np.array([u_i, v_i, w]).reshape(-1, 1)
+            # backtrack by reducing the step size
+            delta_u *= 0.5
+            delta_v *= 0.5
+        if lmda_t[2,0] < 0:
+            lmda_t = -lmda_t
+        return lmda_t, worse
 
     def handle_singularities(self, lmda: np.ndarray):
         """
         Handle the structural singularities that may have been produced when
         the parameters were updated (when the ICR lies on a steering axis).
         :param lmda: the ICR estimate after the parameters were updated.
-        :return: the ICR estimate with the singularity corrected.
+        :return: if the ICR is on a structural singularity, and the wheel
+        number which the singularity is on if there is one
         """
-        return np.zeros(shape=(3, 1))
+        wheel_number = None
+        for i in range(self.n_modules):
+            # equations 16 and 17 in the paper
+            s = column(self.s, i)
+            if np.allclose(lmda, s/np.linalg.norm(s)):
+                wheel_number = i
+                break
+        return wheel_number is not None, wheel_number
 
     def S(self, lmda: np.ndarray):
         """
