@@ -5,9 +5,9 @@ import numpy as np
 import ctre
 import magicbot
 import wpilib
-from pyswervedrive.swervechassis import SwerveChassis
+from pyswervedrive.swervechassis import Chassis
 from pyswervedrive.swervemodule import SwerveModule
-from utilities.imu import IMU
+from utilities.navx import NavX
 from utilities.functions import rescale_js, constrain_angle
 from robotpy_ext.misc.looptimer import LoopTimer
 from networktables import NetworkTables
@@ -18,7 +18,7 @@ class Robot(magicbot.MagicRobot):
     # Any components that directly actuate motors should be declared after
     # any higher-level components (automations) that depend on them.
 
-    chassis: SwerveChassis
+    chassis: Chassis
 
     module_drive_free_speed: float = 7800.  # encoder ticks / 100 ms
 
@@ -27,24 +27,17 @@ class Robot(magicbot.MagicRobot):
 
         self.module_a = SwerveModule(  # top left module
             # "a", steer_talon=ctre.TalonSRX(48), drive_talon=ctre.TalonSRX(49),
-            "a", steer_talon=ctre.TalonSRX(48), drive_talon=ctre.TalonSRX(41),
-            x_pos=0.25, y_pos=0.31,
-            drive_free_speed=Robot.module_drive_free_speed)
-        self.module_b = SwerveModule(  # bottom left module
-            "b", steer_talon=ctre.TalonSRX(58), drive_talon=ctre.TalonSRX(51),
+            "a", steer_talon=ctre.TalonSRX(42), drive_talon=ctre.TalonSRX(48),
             x_pos=-0.25, y_pos=0.31,
             drive_free_speed=Robot.module_drive_free_speed)
-        self.module_c = SwerveModule(  # bottom right module
-            "c", steer_talon=ctre.TalonSRX(52), drive_talon=ctre.TalonSRX(53),
-            x_pos=-0.25, y_pos=-0.31,
-            drive_free_speed=Robot.module_drive_free_speed)
-        self.module_d = SwerveModule(  # top right module
-            "d", steer_talon=ctre.TalonSRX(42), drive_talon=ctre.TalonSRX(43),
+        self.module_b = SwerveModule(  # top left module
+            # "a", steer_talon=ctre.TalonSRX(48), drive_talon=ctre.TalonSRX(49),
+            "b", steer_talon=ctre.TalonSRX(58), drive_talon=ctre.TalonSRX(2),
             x_pos=0.25, y_pos=-0.31,
             drive_free_speed=Robot.module_drive_free_speed)
 
         # create the imu object
-        self.imu = IMU('navx')
+        self.imu = NavX()
 
         self.sd = NetworkTables.getTable("SmartDashboard")
 
@@ -102,8 +95,6 @@ class Robot(magicbot.MagicRobot):
         if self.gamepad.getStartButtonPressed():
             self.module_a.store_steer_offsets()
             self.module_b.store_steer_offsets()
-            self.module_c.store_steer_offsets()
-            self.module_d.store_steer_offsets()
 
     def robotPeriodic(self):
         # super().robotPeriodic()
