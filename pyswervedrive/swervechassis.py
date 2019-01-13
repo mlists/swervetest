@@ -3,20 +3,17 @@ import numpy as np
 from magicbot import tunable
 from wpilib import PIDController
 from wpilib.interfaces import PIDOutput
-from utilities.imu import IMU
+from utilities.navx import NavX
 from pyswervedrive.swervemodule import SwerveModule
-from libswervedrive.icrestimator import ICREstimator
 
 
 class SwerveChassis:
     WIDTH = 1
     LENGTH = 0.88
 
-    imu: IMU
+    imu: NavX
     module_a: SwerveModule
     module_b: SwerveModule
-    module_c: SwerveModule
-    module_d: SwerveModule
 
     # tunables here purely for debugging
     odometry_x = tunable(0)
@@ -31,8 +28,8 @@ class SwerveChassis:
         self.vy = 0
         self.vz = 0
         self.last_vx, self.last_vy = self.vx, self.vy
-        self.field_oriented = True
-        self.hold_heading = True
+        self.field_oriented = False
+        self.hold_heading = False
         self.momentum = False
 
     def setup(self):
@@ -46,7 +43,7 @@ class SwerveChassis:
         self.heading_pid.setOutputRange(-2, 2)
         self.heading_pid.setContinuous()
         self.heading_pid.enable()
-        self.modules = [self.module_a, self.module_b, self.module_c, self.module_d]
+        self.modules = [self.module_a, self.module_b]
 
         self.odometry_x = 0
         self.odometry_y = 0
@@ -70,13 +67,13 @@ class SwerveChassis:
         # z axis to each module's movement, and encode that information in a
         # column vector
         # self.z_axis_adjustment = np.zeros((8, 1))
-        alphas = []
-        ls = []
+        # alphas = []
+        # ls = []
         for i, module in enumerate(self.modules):
             module_dist = math.hypot(module.x_pos, module.y_pos)
-            alphas.append(module_dist)
+            # alphas.append(module_dist)
             module_angle = math.atan2(module.y_pos, module.x_pos)
-            ls.append(module_angle)
+            # ls.append(module_angle)
             # self.z_axis_adjustment[i*2, 0] = -module_dist*math.sin(module_angle)
             # self.z_axis_adjustment[i*2+1, 0] = module_dist*math.cos(module_angle)
             self.A[i*2, 2] = -module_dist*math.sin(module_angle)
@@ -85,11 +82,11 @@ class SwerveChassis:
             module.reset_encoder_delta()
             module.read_steer_pos()
 
-        self.icre = ICREstimator(np.zeros(shape=(3, 1)), np.array(alphas),
-                                 np.array(ls), np.zeros(shape=(4,)))
+        # self.icre = ICREstimator(np.zeros(shape=(3, 1)), np.array(alphas),
+        #                          np.array(ls), np.zeros(shape=(4,)))
 
         # TODO: re-enable if we end up not using callback method
-        self.imu.imu.ahrs.registerCallback(self.update_odometry)
+        self.imu.ahrs.registerCallback(self.update_odometry)
 
     def set_heading_sp_current(self):
         self.set_heading_sp(self.imu.getAngle())
@@ -161,8 +158,8 @@ class SwerveChassis:
         odometry_outputs = np.zeros((8, 1))
         velocity_outputs = np.zeros((8, 1))
 
-        betas = []
-        phi_dots = []
+        # betas = []
+        # phi_dots = []
         for i, module in enumerate(self.modules):
             module.update_odometry()
             odometry_x, odometry_y = module.get_cartesian_delta()
@@ -172,12 +169,12 @@ class SwerveChassis:
             velocity_outputs[i*2, 0] = velocity_x
             velocity_outputs[i*2+1, 0] = velocity_y
             module.reset_encoder_delta()
-            betas.append(module.measured_azimuth)
-            phi_dots.append(module.wheel_angular_vel)
+            # betas.append(module.measured_azimuth)
+            # phi_dots.append(module.wheel_angular_vel)
 
-        q = np.array(betas)
-        lambda_e = self.icre.estimate_lmda(q)
-        print(lambda_e)
+        # q = np.array(betas)
+        # lambda_e = self.icre.estimate_lmda(q)
+        # print(lambda_e)
 
         vx, vy, vz = self.robot_movement_from_odometry(velocity_outputs, heading)
         delta_x, delta_y, delta_z = self.robot_movement_from_odometry(odometry_outputs, heading, z_vel=vz)

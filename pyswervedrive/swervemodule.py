@@ -6,27 +6,18 @@ from utilities.functions import constrain_angle
 
 class SwerveModule:
 
-    PRACTICE: bool = False
-
     # TODO: change back for real robot
     SRX_MAG_COUNTS_PER_REV: int = 4096
-    CIMCODER_COUNTS_PER_REV: int = 80
-    ENCODER_COUNTS_PER_REV: int = SRX_MAG_COUNTS_PER_REV
     WHEEL_DIAMETER: float = 0.0254 * 3
-    # TODO: change this back for the real robot
-    DRIVE_ENCODER_GEAR_REDUCTION_PRACTICE: float = 66/14 * 30/26
-    DRIVE_ENCODER_GEAR_REDUCTION: float = 30/26
-    STEER_COUNTS_PER_RADIAN = SRX_MAG_COUNTS_PER_REV / math.tau
+    DRIVE_ENCODER_GEAR_REDUCTION: float = 100/12*46/26
+    STEER_COUNTS_PER_REV = 1024
+    STEER_COUNTS_PER_RADIAN = STEER_COUNTS_PER_REV / math.tau
 
-    if PRACTICE:
-        DRIVE_ENCODER_GEAR_REDUCTION = DRIVE_ENCODER_GEAR_REDUCTION_PRACTICE
-        ENCODER_COUNTS_PER_REV = CIMCODER_COUNTS_PER_REV
-
-    drive_counts_per_rev = ENCODER_COUNTS_PER_REV*DRIVE_ENCODER_GEAR_REDUCTION
+    drive_counts_per_rev = SRX_MAG_COUNTS_PER_REV*DRIVE_ENCODER_GEAR_REDUCTION
     drive_counts_per_radian = drive_counts_per_rev / math.tau
     # odometry is consistently slightly off, need a fudge factor to compensate
     # TODO: Tune the fudge factor
-    drive_odometry_fudge_factor = 1
+    drive_odometry_fudge_factor = 1 / 1.04
     drive_counts_per_metre = (drive_counts_per_rev / (math.pi * WHEEL_DIAMETER)
                               * drive_odometry_fudge_factor)
 
@@ -46,8 +37,8 @@ class SwerveModule:
 
         self.name = name
 
-        nt = NetworkTables.getTable("SwerveConfig").getSubTable(name)
-        self.steer_enc_offset_entry = nt.getEntry("steer_enc_offset")
+        self.nt = NetworkTables.getTable("SwerveConfig").getSubTable(name)
+        self.steer_enc_offset_entry = self.nt.getEntry("steer_enc_offset")
         self.steer_enc_offset_entry.setDefaultDouble(0)
         self.steer_enc_offset_entry.setPersistent()
 
@@ -74,21 +65,20 @@ class SwerveModule:
         # motors, the last argument is the timeout in milliseconds. See
         # robotpy-ctre documentation for details.
 
-        self.steer_motor.configSelectedFeedbackSensor(ctre.FeedbackDevice.
-                                                      CTRE_MagEncoder_Absolute, 0, 10)
+        self.steer_motor.configSelectedFeedbackSensor(ctre.FeedbackDevice.Analog, 0, 10)
         # changes direction of motor encoder
         self.steer_motor.setSensorPhase(self.reverse_steer_encoder)
         # changes sign of motor throttle vilues
         self.steer_motor.setInverted(self.reverse_steer_direction)
 
-        self.steer_motor.config_kP(0, 3.0, 10)
+        self.steer_motor.config_kP(0, 5.0, 10)
         self.steer_motor.config_kI(0, 0.0, 10)
-        self.steer_motor.config_kD(0, 5.0, 10)
+        self.steer_motor.config_kD(0, 0.0, 10)
         self.steer_motor.selectProfileSlot(0, 0)
         self.steer_motor.config_kF(0, 0, 10)
         self.read_steer_pos()
 
-        self.steer_motor.setNeutralMode(ctre.NeutralMode.Coast)
+        self.steer_motor.setNeutralMode(ctre.WPI_TalonSRX.NeutralMode.Coast)
 
         self.drive_motor.configSelectedFeedbackSensor(ctre.FeedbackDevice.QuadEncoder, 0, 10)
         # changes direction of motor encoder
@@ -96,14 +86,9 @@ class SwerveModule:
         # changes sign of motor throttle values
         self.drive_motor.setInverted(self.reverse_drive_direction)
         # TODO: change back to original constants once we get on to real robot
-        if not self.PRACTICE:
-            self.drive_motor.config_kP(0, 0.3, 10)
-            self.drive_motor.config_kI(0, 0.002, 10)
-            self.drive_motor.config_kD(0, 0.0, 10)
-        else:
-            self.drive_motor.config_kP(0, 0.3*50/5, 10)
-            self.drive_motor.config_kI(0, 0.002*50/5, 10)
-            self.drive_motor.config_kD(0, 0.0*50, 10)
+        self.drive_motor.config_kP(0, 0.01, 10) # 0.5, 0.002, 0, 
+        self.drive_motor.config_kI(0, 0, 10)
+        self.drive_motor.config_kD(0, 0, 10)
         self.drive_motor.config_kF(0, 1024.0/self.drive_free_speed, 10)
         self.drive_motor.configClosedLoopRamp(0.3, 10)
         self.drive_motor.selectProfileSlot(0, 0)
@@ -116,10 +101,11 @@ class SwerveModule:
         # self.steer_motor.configContinuousCurrentLimit(40, timeoutMs=10)
         # self.steer_motor.enableCurrentLimit(True)
 
+        self.drive_motor.configVoltageCompSaturation(9, timeoutMs=10)
         self.drive_motor.configPeakCurrentLimit(50, timeoutMs=10)
         self.drive_motor.configContinuousCurrentLimit(40, timeoutMs=10)
-        self.drive_motor.configPeakCurrentDuration(500, timeoutMs=10)
         self.drive_motor.enableCurrentLimit(True)
+        self.drive_motor.enableVoltageCompensation(True)
 
     def set_rotation_mode(self, rotation_mode):
         """Set whether we want the modules to rotate to the nearest possible
@@ -192,7 +178,7 @@ class SwerveModule:
         :param vy: desired y velocity, m/s (y is left on the robot)
         """
 
-        if math.hypot(self.vx, self.vy) != 0 and math.hypot(vx, vy) == 0:
+        if math.hypot(vx, vy) == 0:
             self.drive_motor.setIntegralAccumulator(0, 0, 0)
             self.drive_motor.neutralOutput()
             self.steer_motor.neutralOutput()
